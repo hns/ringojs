@@ -33,13 +33,15 @@ import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import java.io.IOException;
 import java.io.File;
+import java.lang.ref.SoftReference;
 import java.util.Queue;
 
 public class JsgiServlet extends HttpServlet {
 
     String module;
     Object function;
-    RhinoEngine engine;
+    SoftReference<RhinoEngine> engineRef;
+    RingoConfiguration engineConfig;
 
     public JsgiServlet() {}
 
@@ -48,7 +50,8 @@ public class JsgiServlet extends HttpServlet {
     }
 
     public JsgiServlet(RhinoEngine engine, Callable callable) throws ServletException {
-        this.engine = engine;
+        this.engineRef = new SoftReference<RhinoEngine>(engine);
+        this.engineConfig = engine.getConfiguration();
         this.function = callable;
         try {
             engine.defineHostClass(JsgiEnv.class);
@@ -67,7 +70,7 @@ public class JsgiServlet extends HttpServlet {
             function = getInitParam(config, "functionName", "app");
         }
 
-        if (engine == null) {
+        if (engineConfig == null) {
             String ringoHome = getInitParam(config, "ringoHome", "WEB-INF");
             String modulePath = getInitParam(config, "modulePath", "app");
 
@@ -77,9 +80,8 @@ public class JsgiServlet extends HttpServlet {
                     home = new FileRepository(ringoHome);
                 }
                 String[] paths = StringUtils.split(modulePath, File.pathSeparator);
-                RingoConfiguration ringoConfig = new RingoConfiguration(home, paths, "modules");
-                ringoConfig.setHostClasses(new Class[] { JsgiEnv.class });
-                engine = new RhinoEngine(ringoConfig, null);
+                engineConfig = new RingoConfiguration(home, paths, "modules");
+                engineConfig.setHostClasses(new Class[] { JsgiEnv.class });
             } catch (Exception x) {
                 throw new ServletException(x);
             }
@@ -96,7 +98,7 @@ public class JsgiServlet extends HttpServlet {
             if (asyncResponse != null) {
                 writeAsyncResponse(request, response, asyncResponse);
             } else {
-                engine.invoke("ringo/jsgi", "handleRequest", module, function, env);
+                engine().invoke("ringo/jsgi", "handleRequest", module, function, env);
             }
         } catch (NoSuchMethodException x) {
             throw new ServletException(x);
@@ -117,14 +119,23 @@ public class JsgiServlet extends HttpServlet {
     private void writeAsyncResponse(HttpServletRequest request,
                                     HttpServletResponse response,
                                     Queue queue)
-            throws IOException, NoSuchMethodException {
+            throws Exception {
         synchronized (queue) {
             Object part;
             while((part = queue.poll()) != null) {
-                engine.invoke("ringo/jsgi", "writeAsync", request, response, part,
+                engine().invoke("ringo/jsgi", "writeAsync", request, response, part,
                         Boolean.valueOf(queue.isEmpty()));
             }
         }
+    }
+
+    protected synchronized RhinoEngine engine() throws Exception {
+        RhinoEngine engine = engineRef == null ? null : engineRef.get();
+        if (engine == null) {
+            engine = new RhinoEngine(engineConfig, null);
+            engineRef = new SoftReference<RhinoEngine>(engine);
+        }
+        return engine;
     }
 
     private String getInitParam(ServletConfig config, String name, String defaultValue) {
