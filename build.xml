@@ -53,7 +53,7 @@
     <!-- Fetches dependencies via Apache Ivy                                 -->
     <!-- =================================================================== -->
     <target name="resolve">
-        <ivy:retrieve />
+        <ivy:retrieve type="jar" pattern="${ivy.lib.dir}/[artifact]-[revision].[ext]"/>
     </target>
 
     <!-- =================================================================== -->
