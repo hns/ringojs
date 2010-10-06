@@ -28,6 +28,7 @@ import org.mozilla.javascript.serialize.ScriptableOutputStream;
 import org.mozilla.javascript.serialize.ScriptableInputStream;
 
 import java.io.*;
+import java.lang.ref.SoftReference;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.MalformedURLException;
@@ -48,6 +49,7 @@ public class RhinoEngine implements ScopeProvider {
     private List<Repository> repositories;
     private ScriptableObject globalScope;
     private List<String> commandLineArgs;
+    Map<String, SoftReference<Resource>> resourceCache = new WeakHashMap<String, SoftReference<Resource>>();
     private Map<Trackable, ReloadableScript> compiledScripts, interpretedScripts, sharedScripts;
     private AppClassLoader loader = new AppClassLoader();
     private RingoWrapFactory wrapFactory = new RingoWrapFactory();
@@ -705,7 +707,16 @@ public class RhinoEngine implements ScopeProvider {
         } else if (localRoot != null && path.startsWith(".")) {
             return findResource(localRoot.getRelativePath() + path, null);
         } else {
-            return config.getResource(path);
+            if (config.isReloading()) {
+                return config.getResource(path);
+            }
+            SoftReference<Resource> ref =  resourceCache.get(path);
+            Resource res = ref == null ? null : ref.get();
+            if (res == null) {
+                res = config.getResource(path);
+                resourceCache.put(path, new SoftReference<Resource>(res));
+            }
+            return res;
         }
     }
 
