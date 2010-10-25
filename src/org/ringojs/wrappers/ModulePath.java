@@ -108,7 +108,7 @@ public class ModulePath extends ScriptableObject {
         if (value instanceof Repository) {
             repo = (Repository) value;
             // repositories in module search path must be configured as root repository
-            repo.setRoot();
+            repo.setModuleRoot(true);
             cache.put(repo.getPath(), new SoftReference<Repository>(repo));
         } else if (value != null && value != Undefined.instance) {
             String str = ScriptRuntime.toString(value);

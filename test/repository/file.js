@@ -3,6 +3,7 @@ var {join} = require("fs");
 importPackage(org.ringojs.repository);
 var path = join(module.directory, "data");
 var repo = new FileRepository(path);
+repo.setModuleRoot(true);
 
 require("./common").setup(exports, path, repo);
 

@@ -697,14 +697,7 @@ public class RhinoEngine implements ScopeProvider {
      * @throws IOException if an I/O error occurred
      */
     public Resource findResource(String path, Repository localRoot) throws IOException {
-        // Note: as an extension to the securable modules API
-        // we allow absolute module paths for resources
-        File file = new File(path);
-        if (file.isAbsolute()) {
-            Resource res = new FileResource(file);
-            res.setAbsolute(true);
-            return res;
-        } else if (localRoot != null && path.startsWith(".")) {
+        if (localRoot != null && (path.startsWith("./") || path.startsWith("../"))) {
             return findResource(localRoot.getRelativePath() + path, null);
         } else {
             return config.getResource(path);

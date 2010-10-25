@@ -104,7 +104,7 @@ public final class ZipResource extends AbstractResource {
 
     @Override
     public String toString() {
-        return getPath();
+        return "ZipResource[" + getPath() + "]";
     }
 
     private ZipFile getZipFile() throws IOException {

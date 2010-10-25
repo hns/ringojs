@@ -13,7 +13,7 @@ exports.middleware = function(resourceBase) {
     if (typeof resourceBase == "string") {
         resourceBase = getRepository(resourceBase);
     }
-    resourceBase.setRoot();
+    resourceBase.setModuleRoot(true);
     return function(app) {
         return function(request) {
             var path = request.pathInfo;

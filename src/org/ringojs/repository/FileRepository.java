@@ -70,18 +70,39 @@ public class FileRepository extends AbstractRepository {
     protected FileRepository(File dir, FileRepository parent) throws IOException {
         // make sure our directory has an absolute path,
         // see http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4117557
-        directory = dir.getCanonicalFile();
+        directory = new File(normalizePath(dir.getAbsolutePath(), File.separator));
 
         if (parent == null) {
-            path = name = directory.getAbsolutePath();
+            path = name = directory.getPath();
         } else {
             this.parent = parent;
             name = directory.getName();
-            path = directory.getAbsolutePath();
+            path = directory.getPath();
         }
         if (!path.endsWith(File.separator)) {
             path += File.separator;
         }
+    }
+
+    @Override
+    public boolean isAbsolutePath(String path) {
+        return new File(path).isAbsolute();
+    }
+
+    public Repository getRootRepository() throws IOException {
+        if (root == null) {
+            if (parent != null) {
+                root = (AbstractRepository) parent.getRootRepository();
+            } else {
+                int sep = path.indexOf(File.separator);
+                if (sep == path.length() - 1) {
+                    root = this;
+                } else {
+                    root = new FileRepository(path.substring(0, sep + 1));
+                }
+            }
+        }
+        return root;
     }
 
     /**
@@ -114,7 +135,6 @@ public class FileRepository extends AbstractRepository {
                 AbstractRepository repo = ref == null ? null : ref.get();
                 if (repo == null) {
                     repo = new FileRepository(directory.getParentFile());
-                    repo.setAbsolute(true);
                     repositories.put(name, new SoftReference<AbstractRepository>(repo));
                 }
                 return repo;

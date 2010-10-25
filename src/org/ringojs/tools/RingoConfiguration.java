@@ -69,7 +69,6 @@ public class RingoConfiguration {
             throws IOException {
         repositories = new ArrayList<Repository>();
         home = ringoHome;
-        home.setAbsolute(true);
 
         String optLevel = System.getProperty("rhino.optlevel");
         if (optLevel != null) {
@@ -110,7 +109,7 @@ public class RingoConfiguration {
 
     public void addModuleRepository(Repository repository) throws IOException {
         if (repository != null && repository.exists()) {
-            repository.setRoot();
+            repository.setModuleRoot(true);
             repositories.add(repository);
         } else {
             throw new FileNotFoundException(repository.getPath());
@@ -129,7 +128,7 @@ public class RingoConfiguration {
             // Try to resolve as installation repository child first
             Repository repository = home.getChildRepository(path);
             if (repository != null && repository.exists()) {
-                repository.setRoot();
+                repository.setModuleRoot(true);
                 return repository;
             }
             // Try to resolve path as classpath resource
@@ -149,7 +148,7 @@ public class RingoConfiguration {
                         }
                         repository = new ZipRepository(jar).getChildRepository(path);
                         if (repository.exists()) {
-                            repository.setRoot();
+                            repository.setModuleRoot(true);
                             return repository;
                         }
                     }
@@ -216,8 +215,6 @@ public class RingoConfiguration {
                 }
                 // not found in the existing repositories - note that we do not add
                 // parent directory as first element of module path anymore.
-                // Instead, the script is set to absolute mode so module id will return the absolute path
-                script.setAbsolute(true);
                 mainResource = script;
             } else {
                 // check if the script can be found in the module path

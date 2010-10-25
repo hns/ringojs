@@ -49,6 +49,8 @@ public interface Trackable extends Serializable {
      * Returns an url to the resource if the repository of this resource is
      * able to provide urls.
      * @return url to the resource
+     * @throws MalformedURLException if no valid URL could be created
+     * @throws UnsupportedOperationException if implementation does not support URLs
      */
     public URL getUrl() throws UnsupportedOperationException, MalformedURLException;
 
@@ -61,8 +63,9 @@ public interface Trackable extends Serializable {
     /**
      * Returns the root repository of this resource
      * @return root repository
+     * @throws IOException if root lookup failed
      */
-    public Repository getRootRepository();
+    public Repository getRootRepository() throws IOException;
 
     /**
      * Utility method to get the name for the module defined by this resource.
@@ -78,18 +81,5 @@ public interface Trackable extends Serializable {
      * @return the relative resource path
      */
     public String getRelativePath();
-
-    /**
-     * Set this Trackable to absolute mode. This will cause all its 
-     * relative path operations to use absolute paths instead.
-     * @param absolute true to operate in absolute mode
-     */
-    public void setAbsolute(boolean absolute);
-
-    /**
-     * Return true if this Trackable is in absolute mode.
-     * @return true if absolute mode is on
-     */
-    public boolean isAbsolute();
 
 }

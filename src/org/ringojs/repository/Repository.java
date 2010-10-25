@@ -82,9 +82,16 @@ public interface Repository extends Trackable {
     public Repository getChildRepository(String path) throws IOException;
 
     /**
-     * Mark this repository as root repository, disabling any parent access.
+     * Mark this repository as module root repository.
+     * @param root true if this repository is a module root path
      */
-    public void setRoot();
+    public void setModuleRoot(boolean root);
+
+    /**
+     * Find out if this repository is a module root path.
+     * @return true if this repository is a module search path
+     */
+    public boolean isModuleRoot();
 
     /**
      * Get the path of this repository relative to its root repository.

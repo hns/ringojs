@@ -18,8 +18,8 @@ public class WebappRepository extends AbstractRepository {
         this.parent = null;
         if (path == null) {
             path = "/";
-        } else if (!path.endsWith("/")) {
-            path = path + "/";
+        } else {
+            path = normalizePath(path);
         }
         this.path = path;
         this.name = path;
@@ -30,6 +30,30 @@ public class WebappRepository extends AbstractRepository {
         this.parent = parent;
         this.name = name;
         this.path = parent.path + name + "/";
+    }
+
+    @Override
+    public AbstractRepository getParentRepository() {
+        if ("/".equals(path)) {
+            return this;
+        }
+        if (parent == null) {
+            parent = new WebappRepository(context, path + "..");
+        }
+        return parent;
+    }
+
+    public Repository getRootRepository() throws IOException {
+        if (root == null) {
+            if ("/".equals(path)) {
+                root = this;
+            } else if (parent != null) {
+                root = (AbstractRepository) parent.getRootRepository();
+            } else {
+                root = new WebappRepository(context, "/");
+            }
+        }
+        return root;
     }
 
     public long getChecksum() {

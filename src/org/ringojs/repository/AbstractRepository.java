@@ -16,8 +16,6 @@
 
 package org.ringojs.repository;
 
-import org.ringojs.util.StringUtils;
-
 import java.io.IOException;
 import java.lang.ref.SoftReference;
 import java.util.*;
@@ -29,11 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public abstract class AbstractRepository implements Repository {
 
+    boolean moduleRoot = false;
 
     /**
      * Parent repository this repository is contained in.
      */
-    AbstractRepository parent;
+    protected AbstractRepository parent;
+
+    protected AbstractRepository root;
 
     /**
      * Cache for direct child repositories
@@ -55,11 +56,6 @@ public abstract class AbstractRepository implements Repository {
      * Cached short name for faster access
      */
     String name;
-
-    /**
-     * Whether this repository uses an absolute path
-     */
-    private boolean isAbsolute = false;
 
     /**
      * Called to create a child resource for this repository if it exists.
@@ -87,6 +83,38 @@ public abstract class AbstractRepository implements Repository {
     protected abstract void getResources(List<Resource> list, boolean recursive)
             throws IOException;
 
+    public static String normalizePath(String path) {
+        return normalizePath(path, "/");
+    }
+
+    public static String normalizePath(String path, String separator) {
+        boolean absolute = path.startsWith("/") || path.startsWith(separator);
+        String[] elements = path.split(SEPARATOR);
+        Deque<String> list = new LinkedList<String>();
+        String last = null;
+        for (String e : elements) {
+            if ("..".equals(e)) {
+                if (last == null || "..".equals(last)) {
+                    list.add(e);
+                    last = e;
+                } else {
+                    list.removeLast();
+                }
+            } else if (!".".equals(e) && !"".equals(e)) {
+                list.add(e);
+                last = e;
+            }
+        }
+        StringBuilder sb = new StringBuilder(path.length());
+        if (absolute) {
+            sb.append(separator);
+        }
+        for (String e : list) {
+            sb.append(e).append(separator);
+        }
+        return sb.toString();
+    }
+
     /**
      * Get the full name that identifies this repository globally
      */
@@ -105,25 +133,20 @@ public abstract class AbstractRepository implements Repository {
     /**
      * Mark this repository as root repository.
      */
-    public void setRoot() {
-        parent = null;
+    public void setModuleRoot(boolean root) {
+        moduleRoot = root;
     }
 
     /**
-     * Set this Repository to absolute mode. This will cause all its
-     * relative path operations to use absolute paths instead.
-     * @param absolute true to operate in absolute mode
+     * Find out if this repository is a module root path.
+     * @return true if this repository is on the module search path
      */
-    public void setAbsolute(boolean absolute) {
-        isAbsolute = absolute;
+    public boolean isModuleRoot() {
+        return moduleRoot;
     }
 
-    /**
-     * Return true if this Repository is in absolute mode.
-     * @return true if absolute mode is on
-     */
-    public boolean isAbsolute() {
-        return isAbsolute;
+    public boolean isAbsolutePath(String path) {
+        return path.startsWith("/");
     }
 
     /**
@@ -132,10 +155,10 @@ public abstract class AbstractRepository implements Repository {
      * @return the repository path
      */
     public String getRelativePath() {
-        if (isAbsolute) {
-            return path;
-        } else if (parent == null) {
+        if (moduleRoot) {
             return "";
+        } else if (parent == null) {
+            return path;
         } else {
             StringBuffer b = new StringBuffer();
             getRelativePath(b);
@@ -144,11 +167,13 @@ public abstract class AbstractRepository implements Repository {
     }
 
     private void getRelativePath(StringBuffer buffer) {
-        if (isAbsolute) {
-            buffer.append(path);
-        } else if (parent != null) {
-            parent.getRelativePath(buffer);
-            buffer.append(name).append('/');
+        if (!moduleRoot) {
+            if (parent == null) {
+                buffer.append(path);
+            } else {
+                parent.getRelativePath(buffer);
+                buffer.append(name).append('/');
+            }
         } 
     }
 
@@ -171,8 +196,11 @@ public abstract class AbstractRepository implements Repository {
         if (separator < 0) {
             return lookupResource(subpath);
         }
-        // FIXME this part is virtually identical to the one in getChildRepository()
         AbstractRepository repo = this;
+        if (isAbsolutePath(subpath)) {
+            repo = (AbstractRepository) getRootRepository();
+        }
+        // FIXME this part is virtually identical to the one in getChildRepository()
         int last = 0;
         while (separator > -1 && repo != null) {
             String id = subpath.substring(last, separator);
@@ -225,16 +253,6 @@ public abstract class AbstractRepository implements Repository {
      */
     public AbstractRepository getParentRepository() {
         return parent;
-    }
-
-    /**
-     * Get the repository's root repository
-     */
-    public Repository getRootRepository() {
-        if (parent == null) {
-            return this;
-        }
-        return parent.getRootRepository();
     }
 
     public Resource[] getResources() throws IOException {
