@@ -16,12 +16,21 @@
 
 package org.ringojs.engine;
 
+import org.mozilla.javascript.Context;
+import org.mozilla.javascript.Function;
+import org.mozilla.javascript.JavaScriptException;
+import org.mozilla.javascript.NativeObject;
+import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.ScriptableObject;
+import org.mozilla.javascript.Undefined;
+import org.mozilla.javascript.WrapFactory;
+import org.mozilla.javascript.Wrapper;
 import org.mozilla.javascript.json.JsonParser;
 import org.ringojs.repository.*;
 import org.ringojs.tools.RingoDebugger;
 import org.ringojs.tools.launcher.RingoClassLoader;
 import org.ringojs.wrappers.*;
-import org.mozilla.javascript.*;
 import org.mozilla.javascript.tools.debugger.ScopeProvider;
 
 import java.io.*;
@@ -29,7 +38,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.MalformedURLException;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 
 /**
  * This class provides methods to create JavaScript objects
@@ -51,6 +64,9 @@ public class RhinoEngine implements ScopeProvider {
 
     private RingoContextFactory contextFactory = null;
     private ModuleScope mainScope = null;
+
+    private ScheduledThreadPoolExecutor eventloop =
+            new ScheduledThreadPoolExecutor(1);
 
     public static final Object[] EMPTY_ARGS = new Object[0];
     public static final List<Integer> VERSION =
@@ -162,36 +178,45 @@ public class RhinoEngine implements ScopeProvider {
      * @throws JavaScriptException the script threw an error during
      *         compilation or execution
      */
-    public Object runScript(Object scriptResource, String... scriptArgs)
-            throws IOException, JavaScriptException {
-        Context cx = contextFactory.enterContext();
-        Object[] threadLocals = checkThreadLocals();
-        Resource resource;
-        if (scriptResource instanceof Resource) {
-            resource = (Resource) scriptResource;
-        } else if (scriptResource instanceof String) {
-            resource = findResource((String) scriptResource, null);
-        } else {
-            throw new IOException("Unsupported script resource: " + scriptResource);
-        }
-        if (!resource.exists()) {
-            throw new FileNotFoundException(scriptResource.toString());
-        }
-        try {
-            Object retval;
-            Map<Trackable,ReloadableScript> scripts = getScriptCache(cx);
-            commandLineArgs = Arrays.asList(scriptArgs);
-            resource.setStripShebang(true);
-            ReloadableScript script = new ReloadableScript(resource, this);
-            scripts.put(resource, script);
-            mainScope = new ModuleScope(resource.getModuleName(), resource, globalScope);
-            retval = evaluateScript(cx, script, mainScope);
-            mainScope.updateExports();
-            return retval instanceof Wrapper ? ((Wrapper) retval).unwrap() : retval;
-        } finally {
-            Context.exit();
-            resetThreadLocals(threadLocals);
-        }
+    public Object runScript(final Object scriptResource, final String... scriptArgs)
+            throws IOException, JavaScriptException, InterruptedException,
+                    ExecutionException {
+
+
+        Future<Object> future = eventloop.submit(new Callable<Object>() {
+            public Object call() throws IOException {
+                Context cx = contextFactory.enterContext();
+                Object[] threadLocals = checkThreadLocals();
+                Resource resource;
+                if (scriptResource instanceof Resource) {
+                    resource = (Resource) scriptResource;
+                } else if (scriptResource instanceof String) {
+                    resource = findResource((String) scriptResource, null);
+                } else {
+                    throw new IOException("Unsupported script resource: " + scriptResource);
+                }
+                if (!resource.exists()) {
+                    throw new FileNotFoundException(scriptResource.toString());
+                }
+                try {
+                    Object retval;
+                    Map<Trackable, ReloadableScript> scripts = getScriptCache(cx);
+                    commandLineArgs = Arrays.asList(scriptArgs);
+                    resource.setStripShebang(true);
+                    ReloadableScript script = new ReloadableScript(resource, RhinoEngine.this);
+                    scripts.put(resource, script);
+                    mainScope = new ModuleScope(resource.getModuleName(), resource, globalScope);
+                    retval = evaluateScript(cx, script, mainScope);
+                    mainScope.updateExports();
+                    return retval instanceof Wrapper ? ((Wrapper) retval).unwrap() : retval;
+                } finally {
+                    Context.exit();
+                    resetThreadLocals(threadLocals);
+                }
+            }
+        });
+
+        return future.get();
     }
 
     /**
@@ -232,47 +257,57 @@ public class RhinoEngine implements ScopeProvider {
      * @throws NoSuchMethodException the method is not defined
      * @throws IOException an I/O related error occurred
      */
-    public Object invoke(Object module, String method, Object... args)
-            throws IOException, NoSuchMethodException {
-        Context cx = contextFactory.enterContext();
-        Object[] threadLocals = checkThreadLocals();
-        try {
-            initArguments(args);
-            if (!(module instanceof String) && !(module instanceof Scriptable)) {
-                throw new IllegalArgumentException("module argument must be a Scriptable or String object");
-            }
-            Object retval;
-            while (true) {
+    public Object invoke(final Object module, final String method, final Object... args)
+            throws IOException, NoSuchMethodException, InterruptedException,
+                   ExecutionException {
+
+        Future<Object> future = eventloop.submit(new Callable<Object>() {
+
+            public Object call() throws Exception {
+                Context cx = contextFactory.enterContext();
+                Object[] threadLocals = checkThreadLocals();
                 try {
-                    Scriptable scriptable = module instanceof Scriptable ?
-                            (Scriptable) module : loadModule(cx, (String) module, null);
-                    Object function = ScriptableObject.getProperty(scriptable, method);
-                    if (!(function instanceof Function)) {
-                        throw new NoSuchMethodException("Function " + method + " not defined");
+                    initArguments(args);
+                    if (!(module instanceof String) && !(module instanceof Scriptable)) {
+                        throw new IllegalArgumentException("module argument must be a Scriptable or String object");
                     }
-                    retval = ((Function) function).call(cx, globalScope, scriptable, args);
-                    break;
-                } catch (JavaScriptException jsx) {
-                    Scriptable thrown = jsx.getValue() instanceof Scriptable ?
-                            (Scriptable) jsx.getValue() : null;
-                    if (thrown != null && thrown.get("retry", thrown) == Boolean.TRUE) {
-                        modules.get().clear();
-                    } else {
-                        throw jsx;
+                    Object retval;
+                    while (true) {
+                        try {
+                            Scriptable scriptable = module instanceof Scriptable ?
+                                    (Scriptable) module : loadModule(cx, (String) module, null);
+                            Object function = ScriptableObject.getProperty(scriptable, method);
+                            if (!(function instanceof Function)) {
+                                throw new NoSuchMethodException("Function " + method + " not defined");
+                            }
+                            retval = ((Function) function).call(cx, globalScope, scriptable, args);
+                            break;
+                        } catch (JavaScriptException jsx) {
+                            Scriptable thrown = jsx.getValue() instanceof Scriptable ?
+                                    (Scriptable) jsx.getValue() : null;
+                            if (thrown != null && thrown.get("retry", thrown) == Boolean.TRUE) {
+                                modules.get().clear();
+                            } else {
+                                throw jsx;
+                            }
+                        } catch (RetryException retry) {
+                            // request to try again
+                            modules.get().clear();
+                        }
                     }
-                } catch (RetryException retry) {
-                    // request to try again
-                    modules.get().clear();
+                    if (retval instanceof Wrapper) {
+                        return ((Wrapper) retval).unwrap();
+                    }
+                    return retval;
+                } finally {
+                    Context.exit();
+                    resetThreadLocals(threadLocals);
                 }
+
             }
-            if (retval instanceof Wrapper) {
-                return ((Wrapper) retval).unwrap();
-            }
-            return retval;
-        } finally {
-            Context.exit();
-            resetThreadLocals(threadLocals);
-        }
+        });
+
+        return future.get();
     }
 
     /**
